@@ -42,7 +42,7 @@ ABIY_CUTOFF_DATE = date(2018, 4, 2)
 
 # Analysis time window
 # Start 5 calendar years before the cutoff date (e.g., 2013 for 2018 cutoff)
-START_YEAR = ABIY_CUTOFF_DATE.year - 5
+START_YEAR = ABIY_CUTOFF_DATE.year - 10
 # End year: configurable, default to 2025 (adjust based on ACLED coverage)
 END_YEAR = 2025
 

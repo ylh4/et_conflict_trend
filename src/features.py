@@ -369,20 +369,224 @@ def aggregate_by_event_type(df: pd.DataFrame, groupby_period: bool = True) -> pd
     return event_type_agg
 
 
+def balance_pre_post_periods(
+    df: pd.DataFrame,
+    years_per_period: Optional[int] = None,
+    preserve_temporal: bool = True,
+    equal_counts: bool = False,
+    stratify_by: Optional[list] = None,
+    preserve_all_post: bool = False
+) -> pd.DataFrame:
+    """
+    Balance pre and post Abiy periods.
+    
+    Two modes:
+    1. Equal time windows: Selects equal duration periods (e.g., 5 years pre, 5 years post)
+    2. Preserve all post: Keeps all post-Abiy data and extends pre-Abiy period backward
+       until matching event count (or all available pre data if insufficient)
+    
+    Preserves temporal patterns within each period.
+    
+    Args:
+        df: DataFrame with ACLED events (must have 'event_date' and 'period' columns)
+        years_per_period: Number of years to include in each period (for equal time windows mode)
+        preserve_temporal: If True, maintains chronological order (default: True)
+        equal_counts: If True, downsample to equal number of events (default: False)
+        stratify_by: Optional list of columns to stratify sampling by (e.g., ['adm1_name', 'event_category'])
+        preserve_all_post: If True, preserve all post-Abiy data and extend pre backward (default: False)
+    
+    Returns:
+        DataFrame with balanced pre/post periods.
+    """
+    # Ensure period features exist
+    if 'period' not in df.columns:
+        df = add_abiy_period_features(df)
+    
+    # Ensure event_date is datetime
+    if not pd.api.types.is_datetime64_any_dtype(df['event_date']):
+        df['event_date'] = pd.to_datetime(df['event_date'], errors='coerce')
+    
+    from src.config import ABIY_CUTOFF_DATE
+    
+    cutoff = pd.Timestamp(ABIY_CUTOFF_DATE)
+    
+    # Mode 1: Preserve all post, extend pre backward by matching time duration
+    if preserve_all_post:
+        logger.info("Balancing mode: Preserve all post-Abiy data, match pre-Abiy duration...")
+        
+        # Get all post-Abiy events
+        post_mask = df['event_date'] >= cutoff
+        post_events = df[post_mask].copy()
+        post_count = len(post_events)
+        
+        # Calculate post-Abiy time duration
+        post_start = cutoff
+        post_end = post_events['event_date'].max()
+        post_duration = post_end - post_start
+        
+        logger.info(f"Post-Abiy events (all): {post_count} events")
+        logger.info(f"Post-Abiy date range: {post_start.date()} to {post_end.date()}")
+        logger.info(f"Post-Abiy duration: {post_duration.days} days ({post_duration.days / 365.25:.2f} years)")
+        
+        # Set pre-Abiy window to match post duration
+        pre_end = cutoff
+        pre_start = cutoff - post_duration
+        
+        # Filter pre-Abiy events within this time window
+        pre_mask = (df['event_date'] >= pre_start) & (df['event_date'] < pre_end)
+        pre_events = df[pre_mask].copy()
+        pre_count = len(pre_events)
+        
+        logger.info(f"Pre-Abiy window: {pre_start.date()} to {pre_end.date()}")
+        logger.info(f"Pre-Abiy duration: {(pre_end - pre_start).days} days ({(pre_end - pre_start).days / 365.25:.2f} years)")
+        logger.info(f"Pre-Abiy events: {pre_count} events")
+        
+    # Mode 2: Equal time windows (original behavior)
+    else:
+        if years_per_period is None:
+            years_per_period = 5
+        
+        logger.info(f"Balancing mode: Equal time windows ({years_per_period} years per period)...")
+        
+        # Define time windows
+        pre_start = cutoff - pd.DateOffset(years=years_per_period)
+        pre_end = cutoff
+        post_start = cutoff
+        post_end = cutoff + pd.DateOffset(years=years_per_period)
+        
+        logger.info(f"Pre-Abiy window: {pre_start.date()} to {pre_end.date()}")
+        logger.info(f"Post-Abiy window: {post_start.date()} to {post_end.date()}")
+        
+        # Filter pre-Abiy events
+        pre_mask = (df['event_date'] >= pre_start) & (df['event_date'] < pre_end)
+        pre_events = df[pre_mask].copy()
+        
+        # Filter post-Abiy events
+        post_mask = (df['event_date'] >= post_start) & (df['event_date'] < post_end)
+        post_events = df[post_mask].copy()
+    
+    # Balance to equal counts if requested
+    if equal_counts:
+        pre_count = len(pre_events)
+        post_count = len(post_events)
+        
+        if post_count > pre_count:
+            # Downsample post-Abiy to match pre-Abiy count
+            logger.info(f"Downsampling post-Abiy events from {post_count} to {pre_count}...")
+            
+            if stratify_by:
+                # Stratified sampling
+                def sample_stratified(group):
+                    n_sample = min(len(group), int(pre_count * len(group) / post_count))
+                    return group.sample(n=n_sample, random_state=42) if n_sample > 0 else group.iloc[:0]
+                
+                post_events = post_events.groupby(stratify_by, group_keys=False, include_groups=False).apply(
+                    sample_stratified
+                ).reset_index(drop=True)
+                # If still too many or too few, adjust to exact count
+                if len(post_events) != pre_count:
+                    if len(post_events) > pre_count:
+                        post_events = post_events.sample(n=pre_count, random_state=42).reset_index(drop=True)
+                    else:
+                        # If too few, sample with replacement or take all available
+                        needed = pre_count - len(post_events)
+                        if needed > 0 and len(post_events) > 0:
+                            additional = post_events.sample(n=needed, replace=True, random_state=42)
+                            post_events = pd.concat([post_events, additional], ignore_index=True)
+            else:
+                # Simple random sampling
+                post_events = post_events.sample(n=pre_count, random_state=42).reset_index(drop=True)
+            
+            logger.info(f"Post-Abiy events after downsampling: {len(post_events)}")
+        elif pre_count > post_count:
+            # Downsample pre-Abiy to match post-Abiy count
+            logger.info(f"Downsampling pre-Abiy events from {pre_count} to {post_count}...")
+            
+            if stratify_by:
+                # Stratified sampling
+                def sample_stratified(group):
+                    n_sample = min(len(group), int(post_count * len(group) / pre_count))
+                    return group.sample(n=n_sample, random_state=42) if n_sample > 0 else group.iloc[:0]
+                
+                pre_events = pre_events.groupby(stratify_by, group_keys=False, include_groups=False).apply(
+                    sample_stratified
+                ).reset_index(drop=True)
+                # If still too many or too few, adjust to exact count
+                if len(pre_events) != post_count:
+                    if len(pre_events) > post_count:
+                        pre_events = pre_events.sample(n=post_count, random_state=42).reset_index(drop=True)
+                    else:
+                        # If too few, sample with replacement or take all available
+                        needed = post_count - len(pre_events)
+                        if needed > 0 and len(pre_events) > 0:
+                            additional = pre_events.sample(n=needed, replace=True, random_state=42)
+                            pre_events = pd.concat([pre_events, additional], ignore_index=True)
+            else:
+                pre_events = pre_events.sample(n=post_count, random_state=42).reset_index(drop=True)
+            
+            logger.info(f"Pre-Abiy events after downsampling: {len(pre_events)}")
+    
+    # Combine balanced periods
+    balanced_df = pd.concat([pre_events, post_events], ignore_index=True)
+    
+    # Sort by date if preserving temporal order
+    if preserve_temporal:
+        balanced_df = balanced_df.sort_values('event_date').reset_index(drop=True)
+    
+    # Log results
+    pre_count = len(pre_events)
+    post_count = len(post_events)
+    logger.info(f"Balanced dataset:")
+    if preserve_all_post:
+        # Calculate window durations (not event date ranges)
+        post_start_window = cutoff
+        post_end_window = post_events['event_date'].max() if len(post_events) > 0 else cutoff
+        post_duration = post_end_window - post_start_window
+        post_years = post_duration.days / 365.25
+        
+        pre_end_window = cutoff
+        pre_start_window = cutoff - post_duration
+        pre_duration = pre_end_window - pre_start_window
+        pre_years = pre_duration.days / 365.25
+        
+        logger.info(f"  Pre-Abiy: {pre_count} events (window: {pre_years:.2f} years)")
+        logger.info(f"  Post-Abiy: {post_count} events (window: {post_years:.2f} years)")
+        if abs(pre_years - post_years) < 0.01:
+            logger.info(f"  ✓ Equal window durations achieved: {pre_years:.2f} years = {post_years:.2f} years")
+    else:
+        logger.info(f"  Pre-Abiy ({years_per_period} years): {pre_count} events")
+        logger.info(f"  Post-Abiy ({years_per_period} years): {post_count} events")
+    logger.info(f"  Total: {len(balanced_df)} events")
+    if post_count > 0:
+        logger.info(f"  Event ratio: {pre_count/post_count:.2f}")
+        if equal_counts and pre_count == post_count:
+            logger.info(f"  ✓ Equal counts achieved: {pre_count} = {post_count}")
+    
+    return balanced_df
+
+
 def create_all_features(df: pd.DataFrame, admin_level: int = 1, 
-                       save_processed: bool = True) -> pd.DataFrame:
+                       save_processed: bool = True,
+                       balance_periods: bool = False,
+                       years_per_period: Optional[int] = None,
+                       equal_counts: bool = False,
+                       stratify_by: Optional[list] = None,
+                       preserve_all_post: bool = False) -> pd.DataFrame:
     """
     Complete feature engineering pipeline.
     
     Applies all feature engineering steps in sequence:
     1. Add Abiy period indicators
     2. Categorize event types
-    3. Create aggregations (monthly, regional, event type)
+    3. (Optional) Balance pre/post periods for equal time windows
+    4. Save processed data
     
     Args:
         df: DataFrame with ACLED events (should have admin boundary columns from data_prep)
         admin_level: Administrative level for regional aggregation (1, 2, or 3)
         save_processed: If True, save processed data to data/processed/
+        balance_periods: If True, balance pre/post periods to equal time windows
+        years_per_period: Number of years per period when balancing (default: 5)
     
     Returns:
         DataFrame with all features added
@@ -397,9 +601,30 @@ def create_all_features(df: pd.DataFrame, admin_level: int = 1,
     # Step 2: Categorize event types
     df = categorize_event_types(df)
     
+    # Step 3: Balance periods if requested
+    if balance_periods:
+        df = balance_pre_post_periods(
+            df, 
+            years_per_period=years_per_period, 
+            preserve_temporal=True,
+            equal_counts=equal_counts,
+            stratify_by=stratify_by,
+            preserve_all_post=preserve_all_post
+        )
+    
     # Save processed data
     if save_processed:
-        output_file = PROCESSED_DATA_DIR / "acled_ethiopia_processed.csv"
+        if balance_periods:
+            if preserve_all_post:
+                output_file = PROCESSED_DATA_DIR / "acled_ethiopia_processed_balanced_preserve_post.csv"
+            elif equal_counts:
+                years_str = f"{years_per_period}yr" if years_per_period else "equal"
+                output_file = PROCESSED_DATA_DIR / f"acled_ethiopia_processed_balanced_{years_str}_equal_counts.csv"
+            else:
+                years_str = f"{years_per_period}yr" if years_per_period else "equal"
+                output_file = PROCESSED_DATA_DIR / f"acled_ethiopia_processed_balanced_{years_str}.csv"
+        else:
+            output_file = PROCESSED_DATA_DIR / "acled_ethiopia_processed.csv"
         df.to_csv(output_file, index=False)
         logger.info(f"Saved processed data to {output_file}")
     
@@ -407,6 +632,11 @@ def create_all_features(df: pd.DataFrame, admin_level: int = 1,
     logger.info("Feature engineering complete!")
     logger.info(f"Total events: {len(df)}")
     logger.info(f"Columns: {len(df.columns)}")
+    if balance_periods:
+        pre_count = (df['period'] == 'pre_abiy').sum()
+        post_count = (df['period'] == 'post_abiy').sum()
+        logger.info(f"Pre-Abiy events: {pre_count}")
+        logger.info(f"Post-Abiy events: {post_count}")
     logger.info("=" * 60)
     
     return df
@@ -457,6 +687,34 @@ if __name__ == "__main__":
         help="Save processed data to data/processed/"
     )
     parser.add_argument(
+        "--balance-periods",
+        action="store_true",
+        help="Balance pre/post periods to equal time windows"
+    )
+    parser.add_argument(
+        "--years-per-period",
+        type=int,
+        default=None,
+        help="Number of years per period when balancing (for equal time windows mode)"
+    )
+    parser.add_argument(
+        "--equal-counts",
+        action="store_true",
+        help="Balance to equal number of events (downsample larger period)"
+    )
+    parser.add_argument(
+        "--stratify-by",
+        type=str,
+        nargs='+',
+        default=None,
+        help="Columns to stratify sampling by (e.g., adm1_name event_category)"
+    )
+    parser.add_argument(
+        "--preserve-all-post",
+        action="store_true",
+        help="Preserve all post-Abiy data and extend pre-Abiy backward to match count"
+    )
+    parser.add_argument(
         "--input-file",
         type=str,
         default=None,
@@ -491,7 +749,12 @@ if __name__ == "__main__":
         result = create_all_features(
             df,
             admin_level=args.admin_level,
-            save_processed=args.save_processed
+            save_processed=args.save_processed,
+            balance_periods=args.balance_periods,
+            years_per_period=args.years_per_period,
+            equal_counts=args.equal_counts,
+            stratify_by=args.stratify_by,
+            preserve_all_post=args.preserve_all_post
         )
         print(f"\n✓ Successfully processed {len(result)} events")
         print(f"  Columns: {list(result.columns)[:10]}...")
