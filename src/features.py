@@ -642,14 +642,31 @@ def create_all_features(df: pd.DataFrame, admin_level: int = 1,
     return df
 
 
-def load_processed_data() -> pd.DataFrame:
+def load_processed_data(use_balanced: bool = False) -> pd.DataFrame:
     """
     Load processed ACLED data with all features.
+    
+    Args:
+        use_balanced: If True, load time-balanced dataset (preserve_all_post mode).
+                     If False, load standard processed data.
     
     Returns:
         DataFrame with processed ACLED data including all engineered features.
     """
-    filepath = PROCESSED_DATA_DIR / "acled_ethiopia_processed.csv"
+    if use_balanced:
+        # Try to load balanced dataset (time-based)
+        filepath = PROCESSED_DATA_DIR / "acled_ethiopia_processed_balanced_preserve_post.csv"
+        
+        if not filepath.exists():
+            logger.warning(
+                f"Balanced data not found at {filepath}. "
+                "Falling back to standard processed data. "
+                "To generate balanced data, run: "
+                "python src/features.py --balance-periods --preserve-all-post --save-processed"
+            )
+            filepath = PROCESSED_DATA_DIR / "acled_ethiopia_processed.csv"
+    else:
+        filepath = PROCESSED_DATA_DIR / "acled_ethiopia_processed.csv"
     
     if not filepath.exists():
         raise FileNotFoundError(
@@ -659,7 +676,15 @@ def load_processed_data() -> pd.DataFrame:
     
     logger.info(f"Loading processed data from {filepath}")
     df = pd.read_csv(filepath)
+    
+    # Ensure event_date is datetime
+    if 'event_date' in df.columns:
+        df['event_date'] = pd.to_datetime(df['event_date'], errors='coerce')
+    
     logger.info(f"Loaded {len(df)} events with {len(df.columns)} columns")
+    
+    if use_balanced and "balanced_preserve_post" in str(filepath):
+        logger.info("Using time-balanced dataset (preserve all post, match pre duration)")
     
     return df
 

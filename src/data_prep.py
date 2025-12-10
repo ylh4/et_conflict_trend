@@ -419,15 +419,17 @@ def clean_acled_data(acled_df: pd.DataFrame) -> pd.DataFrame:
 def prepare_acled_with_geography(
     year: Optional[int] = None,
     admin_level: int = 1,
-    save_interim: bool = True
+    save_interim: bool = True,
+    join_all_levels: bool = False
 ) -> pd.DataFrame:
     """
     Complete pipeline: Load, clean, and join ACLED data with administrative boundaries.
     
     Args:
         year: If specified, process data for a specific year. Otherwise, process all years.
-        admin_level: Administrative level to join (1, 2, or 3)
+        admin_level: Administrative level to join (1, 2, or 3). Ignored if join_all_levels=True.
         save_interim: If True, save cleaned and joined data to interim directory.
+        join_all_levels: If True, join all admin levels (1, 2, 3) to the data.
     
     Returns:
         DataFrame with cleaned ACLED data joined to administrative boundaries.
@@ -443,7 +445,14 @@ def prepare_acled_with_geography(
     df_cleaned = clean_acled_data(df)
     
     # Join with administrative boundaries
-    df_with_geo = spatial_join_acled_to_admin(df_cleaned, admin_level=admin_level)
+    if join_all_levels:
+        # Join all admin levels sequentially
+        logger.info("Joining all admin levels (1, 2, 3)...")
+        df_with_geo = spatial_join_acled_to_admin(df_cleaned, admin_level=1)
+        df_with_geo = spatial_join_acled_to_admin(df_with_geo, admin_level=2)
+        df_with_geo = spatial_join_acled_to_admin(df_with_geo, admin_level=3)
+    else:
+        df_with_geo = spatial_join_acled_to_admin(df_cleaned, admin_level=admin_level)
     
     # Save interim data if requested
     if save_interim:
@@ -471,6 +480,54 @@ def prepare_acled_with_geography(
     logger.info("=" * 60)
     
     return df_with_geo
+
+
+def add_admin_levels_to_data(
+    df: pd.DataFrame,
+    admin_levels: list = [2, 3],
+    save_interim: bool = False
+) -> pd.DataFrame:
+    """
+    Add additional admin level joins to existing data.
+    
+    This is useful when you have data with Admin Level 1 and want to add
+    Admin Level 2 and/or 3 without regenerating the entire dataset.
+    
+    Args:
+        df: DataFrame with ACLED data (must have geometry or lat/lon columns)
+        admin_levels: List of admin levels to add (e.g., [2, 3])
+        save_interim: If True, save updated data to interim directory
+    
+    Returns:
+        DataFrame with additional admin level columns added.
+    """
+    logger.info(f"Adding admin levels {admin_levels} to existing data...")
+    
+    # Ensure we have geometry
+    if 'geometry' not in df.columns:
+        if 'latitude' in df.columns and 'longitude' in df.columns:
+            df = create_acled_geodataframe(df)
+        else:
+            raise ValueError("Data must have geometry or lat/lon columns")
+    
+    result_df = df.copy()
+    
+    # Add each admin level
+    for level in admin_levels:
+        admin_col = f'adm{level}_name'
+        if admin_col not in result_df.columns:
+            logger.info(f"Adding Admin Level {level}...")
+            result_df = spatial_join_acled_to_admin(result_df, admin_level=level)
+        else:
+            logger.info(f"Admin Level {level} already present, skipping...")
+    
+    # Save if requested
+    if save_interim:
+        output_file = INTERIM_DATA_DIR / "acled_ethiopia_all_years_cleaned.csv"
+        result_df.to_csv(output_file, index=False)
+        logger.info(f"Saved updated data to {output_file}")
+    
+    return result_df
 
 
 if __name__ == "__main__":

@@ -174,8 +174,16 @@ def merge_regional_data_with_boundaries(
     if admin_level == 1:
         boundaries = load_admin1_boundaries()
         admin_col = 'adm1_name'
+    elif admin_level == 2:
+        from src.data_prep import load_admin2_boundaries
+        boundaries = load_admin2_boundaries()
+        admin_col = 'adm2_name'
+    elif admin_level == 3:
+        from src.data_prep import load_admin3_boundaries
+        boundaries = load_admin3_boundaries()
+        admin_col = 'adm3_name'
     else:
-        raise ValueError(f"Admin level {admin_level} boundaries not yet implemented in merge function")
+        raise ValueError(f"Admin level {admin_level} not supported. Use 1, 2, or 3.")
     
     # Merge
     regional_gdf = boundaries[[admin_col, 'geometry']].merge(
