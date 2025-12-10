@@ -33,7 +33,8 @@ FIGURES_DIR = REPORTS_DIR / "figures"
 TABLES_DIR = REPORTS_DIR / "tables"
 
 # ACLED API configuration
-ACLED_BASE_URL = "https://api.acleddata.com/acled/read"
+ACLED_BASE_URL = "https://acleddata.com/api/acled/read"
+ACLED_TOKEN_URL = "https://acleddata.com/oauth/token"
 COUNTRY = "Ethiopia"
 
 # Abiy Ahmed cutoff date: sworn in as Prime Minister on 2018-04-02
@@ -45,27 +46,29 @@ START_YEAR = ABIY_CUTOFF_DATE.year - 5
 # End year: configurable, default to 2025 (adjust based on ACLED coverage)
 END_YEAR = 2025
 
-# ACLED API credentials (loaded from .env)
-ACLED_EMAIL: Optional[str] = os.getenv("ACLED_EMAIL")
-ACLED_API_KEY: Optional[str] = os.getenv("ACLED_API_KEY")
+# ACLED API credentials (OAuth - loaded from .env)
+# Note: ACLED now uses OAuth token-based authentication
+# You need your myACLED account username (email) and password
+ACLED_USERNAME: Optional[str] = os.getenv("ACLED_USERNAME")  # Your myACLED email
+ACLED_PASSWORD: Optional[str] = os.getenv("ACLED_PASSWORD")  # Your myACLED password
 
 
 def validate_credentials() -> None:
     """
-    Validate that ACLED credentials are present.
+    Validate that ACLED OAuth credentials are present.
     
     Raises:
-        ValueError: If ACLED_EMAIL or ACLED_API_KEY is missing.
+        ValueError: If ACLED_USERNAME or ACLED_PASSWORD is missing.
     """
-    if not ACLED_EMAIL:
+    if not ACLED_USERNAME:
         raise ValueError(
-            "ACLED_EMAIL not found in environment variables. "
-            "Please create a .env file in the project root with ACLED_EMAIL=your_email@example.org"
+            "ACLED_USERNAME not found in environment variables. "
+            "Please create a .env file in the project root with ACLED_USERNAME=your_email@example.org"
         )
-    if not ACLED_API_KEY:
+    if not ACLED_PASSWORD:
         raise ValueError(
-            "ACLED_API_KEY not found in environment variables. "
-            "Please create a .env file in the project root with ACLED_API_KEY=your_api_key"
+            "ACLED_PASSWORD not found in environment variables. "
+            "Please create a .env file in the project root with ACLED_PASSWORD=your_password"
         )
 
 
