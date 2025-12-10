@@ -8,12 +8,18 @@ This module provides functions to:
 - Handle name normalization for mismatches between ACLED and shapefile names
 """
 
+import sys
 from pathlib import Path
 from typing import Optional, Dict
 import pandas as pd
 import geopandas as gpd
 from shapely.geometry import Point
 from shapely.errors import ShapelyError
+
+# Add project root to path if running as script
+if __name__ == "__main__":
+    project_root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(project_root))
 
 from src.config import ADMIN_BOUNDARIES_DIR, RAW_DATA_DIR, INTERIM_DATA_DIR
 from src.utils_logging import get_logger
@@ -452,8 +458,67 @@ def prepare_acled_with_geography(
     logger.info("=" * 60)
     logger.info("Data preparation complete!")
     logger.info(f"Total events: {len(df_with_geo)}")
-    logger.info(f"Events with Admin {admin_level} match: {df_with_geo[f'adm{admin_level}_name'].notna().sum()}")
+    
+    # Count matches properly
+    matched_col = df_with_geo[f'adm{admin_level}_name']
+    matched_count = matched_col.notna().sum()
+    if isinstance(matched_count, pd.Series):
+        matched_count = int(matched_count.iloc[0]) if len(matched_count) > 0 else int(matched_count.sum())
+    else:
+        matched_count = int(matched_count)
+    
+    logger.info(f"Events with Admin {admin_level} match: {matched_count}")
     logger.info("=" * 60)
     
     return df_with_geo
+
+
+if __name__ == "__main__":
+    """
+    Command-line entry point for data preparation pipeline.
+    
+    Usage:
+        python src/data_prep.py [--admin-level 1] [--year YEAR] [--save-interim]
+    """
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Prepare ACLED data with geographic integration")
+    parser.add_argument(
+        "--admin-level",
+        type=int,
+        default=1,
+        choices=[1, 2, 3],
+        help="Administrative level to join (1=regions, 2=zones, 3=woredas)"
+    )
+    parser.add_argument(
+        "--year",
+        type=int,
+        default=None,
+        help="Process data for a specific year (default: all years)"
+    )
+    parser.add_argument(
+        "--save-interim",
+        action="store_true",
+        help="Save cleaned data to interim directory"
+    )
+    
+    args = parser.parse_args()
+    
+    # Set up logging
+    from src.utils_logging import setup_logging
+    logger = setup_logging()
+    
+    # Run pipeline
+    try:
+        result = prepare_acled_with_geography(
+            year=args.year,
+            admin_level=args.admin_level,
+            save_interim=args.save_interim
+        )
+        print(f"\n✓ Successfully processed {len(result)} events")
+    except Exception as e:
+        logger.error(f"Error running pipeline: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
