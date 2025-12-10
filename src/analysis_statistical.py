@@ -34,6 +34,7 @@ from src.features import (
     add_abiy_period_features
 )
 from src.analysis_time_series import prepare_time_series_data
+from src.table_export import save_table_as_png_advanced
 from src.utils_logging import get_logger
 
 logger = get_logger(__name__)
@@ -149,6 +150,45 @@ def fit_its_model(
     return results
 
 
+def export_table_with_png(
+    df: pd.DataFrame,
+    output_file: Path,
+    title: str = "",
+    subtitle: str = "",
+    index: bool = False,
+    **png_kwargs
+) -> Path:
+    """
+    Export table as both CSV and PNG.
+    
+    Args:
+        df: DataFrame to export
+        output_file: Output file path (CSV)
+        title: Title for PNG table
+        subtitle: Subtitle for PNG table
+        index: Whether to include index in CSV export
+        **png_kwargs: Additional arguments for PNG export
+    
+    Returns:
+        Path to saved CSV file.
+    """
+    # Save CSV
+    df.to_csv(output_file, index=index)
+    logger.info(f"Saved table to {output_file}")
+    
+    # Save PNG
+    png_file = output_file.with_suffix('.png')
+    save_table_as_png_advanced(
+        df,
+        png_file,
+        title=title,
+        subtitle=subtitle,
+        **png_kwargs
+    )
+    
+    return output_file
+
+
 def calculate_pre_post_comparison_table(df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     """
     Create summary table comparing pre and post Abiy periods.
@@ -218,6 +258,22 @@ def export_its_results(its_results: Dict, output_file: Optional[Path] = None) ->
     its_results['coefficients'].to_csv(output_file, index=True)
     logger.info(f"Saved ITS coefficients to {output_file}")
     
+    # Save as PNG table
+    png_file = output_file.with_suffix('.png')
+    # Format subtitle with model info at bottom
+    model_info = f"Model: event_count = β₀ + β₁×time + β₂×post + β₃×time×post + ε"
+    stats_info = f"R² = {its_results['r_squared']:.3f} | N = {its_results['n_observations']}"
+    subtitle = f"{model_info}\n{stats_info}"
+    
+    save_table_as_png_advanced(
+        its_results['coefficients'],
+        png_file,
+        title="Interrupted Time-Series Regression Coefficients",
+        subtitle=subtitle,
+        figsize=(12, 7),
+        fontsize=10,
+    )
+    
     # Also save as markdown (if tabulate is available, otherwise use simple text format)
     md_file = output_file.with_suffix('.md')
     try:
@@ -273,8 +329,14 @@ if __name__ == "__main__":
         # Create pre/post comparison table
         comparison = calculate_pre_post_comparison_table()
         comparison_file = TABLES_DIR / "tbl01_pre_post_overall.csv"
-        comparison.to_csv(comparison_file, index=False)
-        logger.info(f"Saved pre/post comparison to {comparison_file}")
+        export_table_with_png(
+            comparison,
+            comparison_file,
+            title="Summary of Conflict Events and Fatalities: Pre vs Post Abiy",
+            subtitle="Monthly averages and total counts",
+            figsize=(14, 6),
+            fontsize=11,
+        )
         
         logger.info("=" * 60)
         logger.info("Statistical analysis complete!")
