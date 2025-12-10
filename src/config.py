@@ -31,6 +31,7 @@ ADMIN_BOUNDARIES_DIR = GEO_DIR / "ethiopia_admin_boundaries"
 REPORTS_DIR = PROJECT_ROOT / "reports"
 FIGURES_DIR = REPORTS_DIR / "figures"
 TABLES_DIR = REPORTS_DIR / "tables"
+BLOG_SECTIONS_DIR = REPORTS_DIR / "blog_sections"
 
 # ACLED API configuration
 ACLED_BASE_URL = "https://acleddata.com/api/acled/read"
@@ -80,6 +81,7 @@ for directory in [
     ADMIN_BOUNDARIES_DIR,
     FIGURES_DIR,
     TABLES_DIR,
+    BLOG_SECTIONS_DIR,
 ]:
     directory.mkdir(parents=True, exist_ok=True)
 

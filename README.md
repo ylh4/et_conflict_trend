@@ -11,7 +11,8 @@ This project implements a reproducible Python analysis stack that:
 - Analyzes temporal trends (time-series analysis)
 - Examines spatial patterns (spatio-temporal analysis)
 - Performs statistical analysis (interrupted time-series regression)
-- Generates publication-quality figures and tables (CSV, Markdown, PNG) for blog publication
+- Generates publication-quality figures and tables (CSV, Markdown, PNG)
+- Creates blog-ready quantitative narrative and limitations sections
 
 ## Project Structure
 
@@ -41,12 +42,15 @@ et_conflict_trend/
 │   ├── analysis_spatiotemporal.py # Spatial and spatio-temporal analysis
 │   ├── analysis_statistical.py   # Statistical analysis (ITS regression)
 │   ├── table_export.py            # Publication-ready PNG table export
-│   └── export_all_tables.py      # Batch table export script
+│   ├── export_all_tables.py      # Batch table export script
+│   ├── visualization.py          # Figure generation (all 6 figures)
+│   └── blog_draft.py             # Blog narrative and limitations generation
 ├── scripts/
 │   └── download_acled_data.py    # Standalone data download script
 ├── reports/
 │   ├── figures/                  # Generated figures (PNG)
-│   └── tables/                   # Generated tables (CSV, Markdown, PNG)
+│   ├── tables/                   # Generated tables (CSV, Markdown, PNG)
+│   └── blog_sections/            # Generated blog narrative sections (Markdown)
 ├── .env                          # ACLED API credentials (create from .env.example)
 ├── .env.example                  # Template for environment variables
 ├── requirements.txt             # Python dependencies
@@ -252,10 +256,69 @@ All tables are exported in three formats:
 - **Markdown**: For documentation
 - **PNG**: Publication-ready images with formatting
 
-### Step 6: Inspect Results
+### Step 6: Generate All Figures
+
+Generate publication-ready figures for the analysis:
+
+```bash
+# Generate all figures (default: Admin Level 1)
+python src/visualization.py --figure all
+
+# Generate figures for all admin levels (1, 2, 3)
+python src/visualization.py --figure all --all-admin-levels
+
+# Generate specific figure
+python src/visualization.py --figure fig01 --admin-level 1
+```
+
+This generates:
+- `fig01_monthly_events.png`: Monthly conflict events with cutoff annotation
+- `fig02_monthly_fatalities.png`: Monthly conflict fatalities with cutoff annotation
+- `fig03_event_type_composition.png`: Event type distribution pre vs post
+- `fig04_regional_distribution_admin1.png`: Regional distribution pre vs post (choropleths)
+- `fig05_regional_change_admin1.png`: Change in conflict intensity by region
+- `fig06_its_model_fit.png`: ITS model fit overlay
+
+**Note:** Figures use the time-balanced dataset by default for fair temporal comparison.
+
+### Step 7: Generate Blog Draft Sections
+
+Generate quantitative narrative and limitations sections for blog publication:
+
+```bash
+# Generate both quantitative narrative and limitations sections
+python src/blog_draft.py
+
+# Generate only quantitative narrative
+python src/blog_draft.py --section quantitative
+
+# Generate only limitations section
+python src/blog_draft.py --section limitations
+
+# Export to custom directory
+python src/blog_draft.py --output-dir reports/blog_sections
+```
+
+This generates:
+- `quantitative_trends.md`: Main quantitative narrative (800-1000 words)
+  - Executive Summary
+  - Introduction
+  - Methodology (with exact balancing dates)
+  - Event and Fatality Trends
+  - Event Type Composition Changes
+  - Regional Patterns
+  - Statistical Significance
+  - Conclusion
+- `limitations.md`: Data limitations and caveats (2-4 paragraphs)
+- `complete_draft.md`: Combined sections with figure/table placeholders
+
+**Note:** The narrative is data-driven and includes automatic figure/table references. Placeholders for all figures and tables are inserted in the complete draft.
+
+### Step 8: Inspect Results
 
 - **Tables**: Check `reports/tables/` for summary statistics and regression results
-- **Figures**: Check `reports/figures/` for visualizations (when visualization module is implemented)
+- **Figures**: Check `reports/figures/` for all visualizations
+- **Blog Sections**: Check `reports/blog_sections/` for publication-ready narrative
 
 ## Configuration
 
@@ -282,7 +345,9 @@ python src/features.py --balance-periods --preserve-all-post --save-processed
 
 **Example:**
 - Post-Abiy: 2018-04-02 to 2024-12-10 (6.69 years)
-- Pre-Abiy: 2011-07-24 to 2018-04-02 (6.69 years) ✓
+- Pre-Abiy: 2011-08-05 to 2018-04-02 (6.69 years) ✓
+
+**Note:** Exact dates are calculated from the data and automatically included in the blog methodology section.
 
 This ensures equal time periods for fair temporal comparison, regardless of event counts.
 
@@ -335,14 +400,41 @@ All tables are exported in multiple formats:
 
 ### Figures
 
-(To be implemented in Phase 6: Visualization)
+All figures are generated as high-resolution PNG images (300 DPI) suitable for publication:
 
 - `fig01_monthly_events.png`: Monthly conflict events with cutoff annotation
 - `fig02_monthly_fatalities.png`: Monthly conflict fatalities with cutoff annotation
 - `fig03_event_type_composition.png`: Event type distribution pre vs post
-- `fig04_regional_distribution.png`: Regional distribution pre vs post (choropleths)
-- `fig05_regional_change.png`: Change in conflict intensity by region
+- `fig04_regional_distribution_admin1.png`: Regional distribution pre vs post (choropleths, Admin Level 1)
+- `fig04_regional_distribution_admin2.png`: Regional distribution (Admin Level 2)
+- `fig04_regional_distribution_admin3.png`: Regional distribution (Admin Level 3)
+- `fig05_regional_change_admin1.png`: Change in conflict intensity by region (Admin Level 1)
+- `fig05_regional_change_admin2.png`: Regional change map (Admin Level 2)
+- `fig05_regional_change_admin3.png`: Regional change map (Admin Level 3)
 - `fig06_its_model_fit.png`: ITS model fit overlay
+
+**Features:**
+- All figures use time-balanced dataset by default
+- Spatial maps include region/zone/woreda name labels
+- Adaptive font sizing for readability
+- Professional styling suitable for publication
+
+### Blog Sections
+
+Publication-ready markdown files for blog posts:
+
+- `quantitative_trends.md`: Complete quantitative narrative (800-1000 words)
+  - Data-driven content based on analysis results
+  - Automatic figure and table references
+  - Exact balancing dates in methodology section
+- `limitations.md`: Data limitations and caveats (2-4 paragraphs)
+  - Reporting biases and under-reporting
+  - Period balancing methodology
+  - Descriptive vs. causal interpretation
+- `complete_draft.md`: Combined sections with figure/table placeholders
+  - Ready for blog publication
+  - Markdown image placeholders for all figures and tables
+  - Properly formatted for static site generators
 
 ## Module Reference
 
@@ -388,6 +480,19 @@ All tables are exported in multiple formats:
 - **`src/export_all_tables.py`**: Batch table export
   - Orchestrates export of all required tables
   - Supports multiple admin levels
+
+- **`src/visualization.py`**: Figure generation
+  - All 6 required figures for the analysis
+  - Support for Admin Levels 1, 2, and 3
+  - Time-balanced dataset integration
+  - Region/zone/woreda name labels on spatial maps
+
+- **`src/blog_draft.py`**: Blog narrative generation
+  - Quantitative trends narrative (800-1000 words)
+  - Limitations section (2-4 paragraphs)
+  - Data-driven content generation
+  - Automatic figure/table placeholder insertion
+  - Exact balancing dates from data
 
 ## Testing
 
